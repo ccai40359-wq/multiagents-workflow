@@ -50,3 +50,5 @@ Read your page images one by one, writing each page's verdict immediately after 
 ```
 
 One line per assigned page, passing pages included; no prose, no extra narration. `category`: Spec | Content | Visual | Design | Unverified; any criterion violated → fail; unconfirmed → `Unverified`.
+
+Your JSON verdict lines are the **Findings** section of the pack-wide report contract (REPORT-CONTRACT.md); when the dispatcher asks for the full shape, list the pages you actually rendered and inspected under **Verified** (image path each), pages with missing renders under **Not covered**, and checks you chose not to run (if any) under **Skipped**.

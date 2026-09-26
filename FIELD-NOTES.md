@@ -30,3 +30,34 @@ Observations from running this pack on real work (sanitized — no client data, 
 - An LLM judge over rendered page PNGs (one verdict line per page, with evidence) plus a mechanical screenshot hook covers the "does it actually look right" gap that command-line acceptance misses.
 - Re-judging after fixes is cheap and catches regressions: fixing a header on one page can break another.
 - Keep the judge zero-write; render → judge → fix → re-render is the loop.
+
+## v0.2 notes: what the gates are for (2026-09-26)
+
+Studying a deterministic workflow runner's design (compile-time-checked
+orchestration, journaled state, exit-code gates) produced five transfers, each
+mapping a weakness we had already observed in ourselves onto a mechanical fix:
+
+- **"I ran it" is the most expensive sentence in the pack.** A subagent reporting
+  success is a claim; the acceptance step now re-runs one declared command and
+  reads its exit code. The interesting part is not the check — it is that the
+  rule stopped being something the host must remember.
+- **Knobs in prompt text are identity leaks.** Our dispatch template embedded
+  "budget: ≤8 searches" directly in the brief — meaning any tuning silently
+  invalidated every conclusion drawn under the old budget, with nothing marking
+  which ones. Brief = invariant; parameters = recorded, hashed, per dispatch.
+- **Editing a brief is a silent invalidation.** Gap rounds used to re-send
+  amended briefs, re-opening conclusions round 1 had already settled. Gaps are
+  now additive lanes with fresh task-ids.
+- **"Retry once" was three rules wearing a trenchcoat.** Transport failure
+  (wait), protocol failure (re-dispatch once, narrower), definition failure
+  (never re-dispatch — void downstream) have opposite correct actions; the
+  ledger makes the attribution explicit instead of leaving it to vibes.
+- **The one place dishonesty hides is the gap between "blocked" and "skipped".**
+  Not covered = tried, wall hit. Skipped = chose not to, with the cost. A
+  "skipped" filed as "blocked" reads like humility but is a decision wearing an
+  excuse — that is the one thing report-lint fails hardest.
+
+Counter-lesson, kept deliberately: the deterministic runner routes everything
+through one model and has no notion of independent evidence families. Our
+cross-family arbitration and anti-majority-vote rules are the part a compiled
+orchestrator cannot express — do not trade them for executability.

@@ -42,6 +42,7 @@ Long files (>50K chars): explicitly instruct "do not read linearly; Grep for key
 ### 5. Output
 - Verdict table: one row per file (match/addition/conflict + reason + page source)
 - Explicitly list "additions found by the subagent" and "conflicts arbitrated" — that's the proof of the dual channel's value
+- Wrap it in the pack-wide five-section shape (`REPORT-CONTRACT.md`): **Findings** = the verdict table; **Verified** = citations checked against the source text (page/line each); **Not covered** = sections unread; **Skipped** = files below the deep-read threshold. Enforce mechanically: `node <pack-root>/tools/gates/report-lint.mjs <report.md>`
 
 ## When you can skip dual-read
 - Files <10K chars with no key-fact extraction (browsing, existence checks)

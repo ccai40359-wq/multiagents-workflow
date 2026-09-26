@@ -33,7 +33,11 @@ Every lane's researcher must get a **different seed** (wording / language / site
 - Send multiple Agent calls (subagent_type: `researcher`) in **one message** — do not serialize.
 - **≤6 per batch**; heavy tier dispatches in batches (avoid gateway rate limits).
 - **Validate channels before writing them into tasks**: the main session verifies one working channel first, then writes the **complete command** into the task template — sub-agents have no Skill tool and cannot load other manuals, so commands must be self-contained. Common channels: search APIs (Exa etc., via mcporter/MCP or curl) | search-engine result pages (Bing/Brave) | r.jina.ai for page reading | `gh` | `yt-dlp`; verify social-platform channels before using them.
-- Every task must be **self-contained** (sub-agents cannot see the main session). Template:
+- Every task must be **self-contained** (sub-agents cannot see the main session). A dispatch has two parts — keep them apart:
+  - **Invariant brief** — frozen the moment the lane is dispatched: question, scope, seeds, output contract below. Never edit it afterwards; a changed brief invalidates the lane's evidence. Gaps are handled by *adding* lanes (see the two-round rule), never by re-sending an edited brief.
+  - **Parameter block** — the tunable knobs (budget, model, tier), recorded in the dispatch ledger, not embedded in the brief: `node <pack-root>/tools/ledger/dispatch-ledger.mjs append --params-file <params.md> ...`. Every conclusion is traceable to the parameter set it was produced under — change a knob and you know exactly which conclusions are invalidated.
+
+  Template (invariant part):
 
 ```
 Research task (lane: <name>).
@@ -42,26 +46,33 @@ Tools: prefer Bash with your search command, e.g. mcporter call 'exa.web_search_
 fetch pages with node <pack-root>/skills/web-research-fanout/scripts/fetch-hard.mjs <url> (chained degradation: real-UA direct fetch → HTML-to-text → r.jina fallback) or WebFetch;
 search-result-page fallback (use only if the two above fail): www.bing.com/search?q= / search.brave.com/search?q=; DuckDuckGo is CAPTCHA-walled, don't use it;
 on 403/blocks: escalate one level (see §6); if still blocked, stop and mark "blocked: <site> <status code>" — never force it.
-Output contract (strict):
-1) claims table, one row per claim: assertion | source URL | date | primary/secondary | counter-evidence
-2) "not found / conflicting" list
-3) ≤3-line summary
-Nothing else. Budget: ≤8 searches + ≤10 page fetches; stop once a claim has 2 independent sources.
+Output contract (strict — the pack-wide five-section shape, REPORT-CONTRACT.md):
+## Conclusion — ≤3 lines
+## Findings — 1) claims table, one row per claim: assertion | source URL | date | primary/secondary | counter-evidence   2) "not found / conflicting" list
+## Verified — rows traced to primary sources (URL each)
+## Not covered — walls hit: "blocked: <site> <status>"
+## Skipped — sources you deprioritized (with the reason)
+Nothing else.
 ```
+
+  Parameter block (recorded via the dispatch ledger, not embedded in the brief):
+  `budget: ≤8 searches + ≤10 page fetches; stop once a claim has 2 independent sources.` · `model: <as dispatched>` · `tier: <Quick|Standard|Heavy>`
 
 ### Big topics (heavy tier / decision-grade conclusions): two rounds, don't one-shot
 
 1. **Recon round (main session, 5-10 min)**: search 3-6 times yourself to learn the key entities, where the primary sources live, and where accounts disagree → use that to cut lanes and seeds. (For high-cost tasks you may add a "plan gate": show the plan to the user before starting.)
 2. **Collection round**: dispatch researchers per lane in parallel (≤6 per batch).
-3. **Gap round**: dispatch 1-2 targeted researchers for exactly three things — the "not found" list, conflicts, and counter-evidence for load-bearing claims.
+3. **Gap round**: dispatch 1-2 **additional** lanes with fresh task-ids, targeting exactly three things — the "not found" list, conflicts, and counter-evidence for load-bearing claims. **The round-1 briefs stay frozen**: never re-send an edited brief, because that re-opens (and re-pays for) every conclusion round 1 already settled. Gaps are new lanes, not patched ones.
 
 The cost of one-shotting: lanes burn their budget guessing keywords (measured).
 
 ## 3. Mechanical merge in the main session (don't read every report)
 
+- **Gate every lane report before merging**: `node <pack-root>/tools/gates/claims-lint.mjs <lane-output.md>` must exit 0. It mechanically fails any row missing a public URL, date, primary/secondary marker, or counter-evidence — and conflicts that never made it into an arbitration section. A lane that fails the gate goes back to that lane; do not hand-merge around it.
 - Deduplicate by assertion: same assertion from multiple sources → one row, note the source count.
 - Mechanically flag two things: ① load-bearing assertions with a single source ② assertions with conflicting conclusions → into the "conflict list".
 - Keep only the merged table + conflict list; never stuff all raw reports into context.
+- Log each lane's outcome in the dispatch ledger (`tools/ledger/dispatch-ledger.mjs`) — a lane that returned nothing usable is `failed-protocol` or `failed-definition`, not a silent shrug (see the failure taxonomy in the Appendix).
 
 ## 4. Verification & arbitration (default: primary sources + adversarial + cross-family)
 
@@ -76,8 +87,13 @@ For **every load-bearing assertion** (an assertion the conclusion rests on), do 
 
 ## 5. Output format
 
-Conclusions table (assertion | sources | date | confidence) + disputed list (with both sides and their sources) + a one-sentence summary.
-Disputed items must be explicitly surfaced — never silently dropped.
+Lane reports and the final merged deliverable both follow the pack-wide five-section shape (`REPORT-CONTRACT.md`): **Conclusion / Findings / Verified / Not covered / Skipped**. For this skill:
+
+- **Findings** = the merged conclusions table (assertion | sources | date | confidence — a *merge view* over the lanes; the per-lane claims tables feeding it keep the full five-column contract that `claims-lint.mjs` checks) + the disputed list with both sides and their sources.
+- **Verified** = load-bearing assertions traced to primary sources (each with its URL).
+- **Not covered** = `blocked: <site> <status>` items — tried, wall hit.
+- **Skipped** = sources deprioritized by the parameter block — chose not to, with the reason.
+- Disputed items must be explicitly surfaced — never silently dropped. Enforce mechanically: `node <pack-root>/tools/gates/report-lint.mjs <report.md>`.
 
 **Pre-delivery self-check (all must pass)**:
 
@@ -111,7 +127,11 @@ On any 403/block: **go up one level; do not retry the same level.** Retrying is 
 - **Reddit-class hard sites may be blocked at the exit-IP level** (curl+UA, headless browser, r.jina, WebFetch all blocked) → use the L1 index layer (readable highlights, measured); for HN use the Algolia API (hn.algolia.com/api/v1/search?query=..., never blocked); if neither works, mark "not obtained" — don't force it.
 - **Bing's result page returns garbage for Chinese queries** (tokenization failure) → use Brave or English seeds for Chinese lanes.
 - **"Free tier" numbers tend to hide behind 403'd pricing pages** → needs Bash+curl or a logged-in channel; if unavailable, mark "disputed: no primary source obtained".
-- **Failure and timeout handling**: lane dispatch failures/timeouts (killed for 10 min of inactivity / turn execution failed / stopped) → retry once (smaller scope or different model); still failing → record it in the gap list. Never skip silently. Lane fetches go through fetch-hard (which carries its own timeouts) so nothing hangs.
+- **Failure handling = attribute first, then act.** "Retry once" is not one rule; the three failure classes have opposite correct actions:
+  - **`failed-transport`** (timeout, killed for inactivity, turn execution failed, provider 4xx/5xx): the host/provider layer owns retries. Do not burn a protocol retry — wait and re-check via the ledger. Record `mark --status failed-transport`.
+  - **`failed-protocol`** (lane returned malformed output, no claims table, skipped the contract): re-dispatch **once** with a narrower scope; a second protocol failure means the brief, not the channel, is the problem → treat as `failed-definition`.
+  - **`failed-definition`** (the lane's question was wrong, duplicate of another lane, or unreachable as specified): **never re-dispatch as-is.** Void the lane, void any conclusion that rested on it, and open a new lane with a corrected invariant brief.
+  - Record every outcome with `tools/ledger/dispatch-ledger.mjs mark` — an unlogged failure is a silent one. Lane fetches go through fetch-hard (which carries its own timeouts) so nothing hangs.
 - Channel ranking (measured): search API (mcporter/Exa) > fetch-hard (L2) > Brave/Bing result-page scraping (quality varies) > main-session browser (L4).
 - Sub-agent configs are usually **session-start snapshots** in many hosts: changing a role's tools/system prompt requires a new session.
 - This protocol borrowed ideas from contemporary open-source projects (red-team/claims-ledger, review isolation, etc.) — see the repo README's Related work.

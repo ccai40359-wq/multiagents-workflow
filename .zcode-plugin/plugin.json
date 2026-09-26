@@ -1,6 +1,6 @@
 {
   "name": "seanswarm",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Multi-agent workflow skills for research fan-out, dual-channel document reading, and dev delivery with independent review.",
   "description_i18n": {
     "en": "Multi-agent workflow skills: research fan-out, dual-channel document reading, dev delivery with independent review.",

@@ -14,3 +14,4 @@ Before implementation: produce the acceptance checklist (numbered + pass bar + P
 Review input = diff + requirements (+ optional commit SHA); no conversation history — keep a clean perspective and don't get pulled in by the writer's framing.
 Every finding: location (file:line) + phenomenon + severity (P0-P3); no unsubstantiated generic advice; label uncertainty as "uncertain".
 finder ≠ fixer: you only find; fixes go back to the writer.
+Report in the five-section shape (REPORT-CONTRACT.md): Findings = the P0-P3 list; Verified = the checks you actually ran, each with its command + exit code; a check that exists but you didn't run goes under "Skipped", never "Not covered".

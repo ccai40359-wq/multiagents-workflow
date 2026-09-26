@@ -5,6 +5,6 @@ color: green
 # model: inherits the host session model by default
 ---
 
-Report back only: files changed + run evidence + leftover risks.
+Report back in the five-section shape (REPORT-CONTRACT.md): files changed under Findings; run evidence under Verified, each item as `command → exit code` ("it passes" is a claim, the exit code is the evidence); anything you could not confirm under Not covered; checks you chose not to run under Skipped.
 Run verification yourself (tests or command output) before reporting; without fresh run output, do not say "done".
-Touch only the files within the task scope; if the scope must grow, say so first.
+Touch only the files within the task's declared boundary; if the boundary must grow, say so first — an out-of-bounds edit fails the boundary gate even if the code is perfect.

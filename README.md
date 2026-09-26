@@ -21,6 +21,7 @@ It covers four recurring scenarios:
 | Document reading | `skills/dual-read` | two independent channels read the same document, then cross-compare (match / addition / conflict) |
 | Dev delivery | `skills/dev-delivery` | QA-first acceptance list → single writer → independent read-only review (diff-only) → fail-closed acceptance → fixes go back to the single writer; disjoint modules run as parallel workstreams |
 | Visual acceptance | `agents/visual-judge.md` + `hooks/ui-screenshot-gate.mjs` | render → screenshot → per-page verdict → fix → re-render; a mechanical hook bounces "done" without screenshot evidence |
+| Evidence enforcement | `tools/gates/` + `tools/ledger/` + `REPORT-CONTRACT.md` | mechanical, zero-dependency checks: claims-table lint, file-boundary check, report-contract lint; append-only dispatch ledger with three-way fault attribution |
 
 Role templates live in `agents/`: `researcher`, `reviewer`, `worker-coder`, `visual-judge`.
 
@@ -37,7 +38,10 @@ Role templates live in `agents/`: `researcher`, `reviewer`, `worker-coder`, `vis
 - **finder ≠ fixer.** The reviewer only finds; fixes go back to the single writer; one repair round, no recursion.
 - **One writer *per workstream*.** Modules whose files are disjoint run as parallel workstreams — each still goes through the full gated pipeline, and the main session owns integration.
 - **Verification before completion.** No "done" without fresh run output.
-- **Cheap gates beat clever prompts.** The mechanical hook exists because prose alone is not enforcement.
+- **Judgment belongs to exit codes, not self-reports.** Every workstream declares one command whose exit code decides pass/fail; a subagent *reporting* "tests pass" is a claim, the exit code is the evidence. Ported from watching deterministic gate runners: the model answers questions, the command renders verdicts.
+- **Frozen briefs, recorded knobs.** A dispatch's invariant brief never changes after dispatch — gaps are handled by adding lanes, not editing briefs — and tunable parameters (budget, model, tier) are recorded in the ledger, not embedded in the prompt. Every conclusion stays traceable to the parameter set that produced it.
+- **Faults are attributed, not just retried.** `failed-transport` (host/provider layer — wait), `failed-protocol` (contract broken — re-dispatch once, narrower), `failed-definition` (the task itself was wrong — never re-dispatch; void downstream and re-specify). One flat "retry once" rule conflates three opposite situations.
+- **Cheap gates beat clever prompts.** The mechanical hook exists because prose alone is not enforcement — v0.2 extends the idea from one hook to a gate suite (see below).
 
 ## Install
 
@@ -60,6 +64,19 @@ The repo ships a plugin manifest at `.zcode-plugin/plugin.json`. Add the repo as
 
 `hooks/ui-screenshot-gate.mjs` is a Stop-event hook: when UI files were edited in a turn that produced no screenshot evidence, it sends the turn back to collect evidence. Wiring instructions in `hooks/README.md`.
 
+### Mechanical gates & ledger (new in v0.2)
+
+`tools/` ships the mechanical layer of the protocols — deliberately dumb (no LLM, no judgment, just bookkeeping), zero npm dependencies, Node 18+:
+
+| Command | Gate | Fails when |
+|---|---|---|
+| `node tools/gates/claims-lint.mjs <lane-output.md>` | research claims table | a row lacks a public URL / date / primary-secondary marker / counter-evidence; a conflict never reached an arbitration section |
+| `node tools/gates/boundary-check.mjs --boundary <patterns> --git-base <ref>` | dev-delivery file boundaries | a changed file falls outside the workstream's declared boundary |
+| `node tools/gates/report-lint.mjs <report.md>` | the five-section report contract (`REPORT-CONTRACT.md`) | a required section is missing; a "skipped" check is disguised as blocked; a *Verified* item carries no evidence marker |
+| `node tools/ledger/dispatch-ledger.mjs append\|mark\|status` | dispatch bookkeeping | (not a gate) — append-only JSONL answering "which conclusions are not yet verified", with `failed-transport` / `failed-protocol` / `failed-definition` attribution |
+
+All gates: exit `0` pass · `1` violation · `2` cannot-judge; `--json` for machines; `--strict` promotes warnings. 175 tests cover the suite (`node tests/*.test.mjs`).
+
 ## Quick start
 
 - Research: *"Research X across official docs, GitHub, and community — fan out, then verify."*
@@ -75,7 +92,7 @@ Skills trigger on these kinds of requests; you can also name them explicitly.
 
 **Why fan-out isn't cloning.** N agents with the same question pick the same pages and reinforce the same error. Lanes must differ in at least one dimension: source type, language, stance, or model family.
 
-**Output shape.** The claims-table contract every lane must return is shown in `examples/claims-table-sample.md`.
+**Output shape.** Every workstream reports in the same five sections — Conclusion / Findings / Verified / Not covered / Skipped — so merging becomes bookkeeping instead of prose-reading. See `REPORT-CONTRACT.md`; the claims-table contract every lane must return is shown in `examples/claims-table-sample.md`.
 
 **Cost, measured (4-lane run — the low end of the standard tier — single host):** ≈0.56M tokens total, ≈5 min wall clock (parallel) + ≈1 min arbitration. Heavy tier (10–20 lanes): 1.5–4M tokens per round. Details in `FIELD-NOTES.md`.
 
@@ -97,9 +114,9 @@ Ideas borrowed with gratitude: diff-only review input (superpowers); fail-closed
 
 ## Status & roadmap
 
-v0.1.0. Skills ship in English (`SKILL.md`) with Chinese translations alongside (`SKILL.zh.md`); agent role templates carry bilingual descriptions. Codex/Cursor adapters are drafts pending verification.
+v0.2.0. Skills ship in English (`SKILL.md`) with Chinese translations alongside (`SKILL.zh.md`); agent role templates carry bilingual descriptions. Codex/Cursor adapters are drafts pending verification.
 
-- v0.2: machine-checkable evals (including an adversarial-lane behaviour test); dispatch-ledger tooling; cross-round claim reconciliation.
+- v0.3: machine-checkable evals (including an adversarial-lane behaviour test); cross-round claim reconciliation on top of the dispatch ledger.
 
 ## License
 

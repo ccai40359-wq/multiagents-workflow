@@ -21,6 +21,7 @@
 | 文档精读 | `skills/dual-read` | 两条独立通道读同一份文档 → 交叉比对（一致 / 增量 / 矛盾） |
 | 开发交付 | `skills/dev-delivery` | QA-first 验收清单 → 单写手 → 独立只读审查（只喂 diff）→ fail-closed 验收 → 修复回唯一写手；文件互不相交的模块并行工作流 |
 | 视觉验收 | `agents/visual-judge.md` + `hooks/ui-screenshot-gate.mjs` | 渲染 → 截图 → 逐页判卷 → 修复 → 重渲染；机械 hook 拦住"没截图就说完成" |
+| 证据强制 | `tools/gates/` + `tools/ledger/` + `REPORT-CONTRACT.md` | 机械、零依赖校验：claims 表 lint、文件边界检查、报告契约 lint；追加式派发留账 + 故障三分类归因 |
 
 角色模板在 `agents/`：researcher / reviewer / worker-coder / visual-judge。
 
@@ -37,7 +38,10 @@
 - **finder ≠ fixer**：审查者只找不修，修复回唯一写手，单轮不递归。
 - **写手唯一是"每条工作流一个"**：文件互不相交的模块可拆成并行工作流——每条仍走完整闸门流程，集成归主会话。
 - **verification-before-completion**：没有新鲜运行输出，不许说"完成"。
-- **机械闸门 > 聪明提示词**：hook 的存在是因为光靠提示词管不住。
+- **判断交给退出码，不交给自我汇报**：每条工作流声明一句退出码能裁决通过/失败的命令；子代理*报告*"测试通过了"是声明，退出码才是证据。
+- **brief 冻结、旋钮落账**：派单的不变量 brief 派出后永不改写——缺口靠加 lane 解决，不改 brief；可调参数（预算/模型/档位）记进留账而非嵌进提示词。每条结论都可追溯到产生它的那套参数。
+- **故障先归因，再谈重试**：`failed-transport`（宿主/供应商层——等待）、`failed-protocol`（违反契约——缩范围重派一次）、`failed-definition`（任务本身派错了——绝不重派，作废下游重新立单）。一条笼统的"重派一次"把三种相反的情形混成一团。
+- **机械闸门 > 聪明提示词**：hook 的存在是因为光靠提示词管不住——v0.2 把这个思路从一个 hook 扩成了一组门禁（见下）。
 
 ## 安装
 
@@ -54,6 +58,19 @@ ZCode 还可用插件形态：仓库自带 `.zcode-plugin/plugin.json`，把仓�
 
 可选 hook：`hooks/ui-screenshot-gate.mjs`（Stop 事件闸门——改了 UI 文件但整轮没截图证据会把你弹回补证据），接线说明见 `hooks/README.md`。
 
+### 机械门禁与留账（v0.2 新增）
+
+`tools/` 是协议的机械层——故意笨（无 LLM、无判断、只做簿记）、零 npm 依赖、Node 18+：
+
+| 命令 | 闸门 | 拦什么 |
+|---|---|---|
+| `node tools/gates/claims-lint.mjs <lane-output.md>` | 调研 claims 表 | 行缺公开 URL / 日期 / 一手二手标记 / 反证；标了冲突却没进仲裁小节 |
+| `node tools/gates/boundary-check.mjs --boundary <patterns> --git-base <ref>` | 开发交付文件边界 | 改动文件越出工作流声明的边界 |
+| `node tools/gates/report-lint.mjs <report.md>` | 五段报告契约（`REPORT-CONTRACT.md`） | 缺必需段；把"跳过"伪装成"被挡"；*已验证*条目没有证据标记 |
+| `node tools/ledger/dispatch-ledger.mjs append\|mark\|status` | 派发簿记 | （非门禁）——追加式 JSONL，回答"哪些结论还没验证"，带 `failed-transport` / `failed-protocol` / `failed-definition` 三分类归因 |
+
+所有门禁：exit `0` 通过 · `1` 违规 · `2` 无法判定；`--json` 给机器、`--strict` 升格警告。全套 175 项测试（`node tests/*.test.mjs`）。
+
 ## 怎么用
 
 - 调研：*"全网查一下 X，多源核对了再给我结论。"*
@@ -67,7 +84,7 @@ ZCode 还可用插件形态：仓库自带 `.zcode-plugin/plugin.json`，把仓�
 
 **扇出不是克隆**：N 个 agent 问同一个问题，会捡到同一批页面、强化同一个错误。lane 必须在源类、语言、立场、模型家族里至少占一个独立维度。
 
-**输出形态**：每条 lane 必须交的 claims 表长什么样，见 `examples/claims-table-sample.md`。
+**输出形态**：所有工作流统一用五段报告——结论 / 发现 / 已验证 / 未覆盖 / 已跳过——合并从"读散文"变成"对账"。见 `REPORT-CONTRACT.md`；每条 lane 必须交的 claims 表长什么样，见 `examples/claims-table-sample.md`。
 
 **成本（4 lane 实跑，属标准档低配；标准档为 5–8 lane，单一环境）**：约 56 万 token，墙钟 ≈5 分钟（并行）+ 仲裁 ≈1 分钟。重型档（10–20 lane）约 150万–400万 token/轮。详见 `FIELD-NOTES.md`。
 
@@ -89,9 +106,9 @@ ZCode 还可用插件形态：仓库自带 `.zcode-plugin/plugin.json`，把仓�
 
 ## 状态与路线
 
-v0.1.0。技能以英文为主版（`SKILL.md`），附中文对照（`SKILL.zh.md`）；角色模板正文英文、描述双语。Codex/Cursor 适配器为草稿待实测。
+v0.2.0。技能以英文为主版（`SKILL.md`），附中文对照（`SKILL.zh.md`）；角色模板正文英文、描述双语。Codex/Cursor 适配器为草稿待实测。
 
-- v0.2：可机跑的评测（含对抗 lane 行为测试）；派发留痕工具；跨轮 claims 对账。
+- v0.3：可机跑的评测（含对抗 lane 行为测试）；在派发留账之上做跨轮 claims 对账。
 
 ## 许可
 
